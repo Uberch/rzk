@@ -20,7 +20,9 @@ module Language.Rzk.VSCode.Handlers (
   formatDocument,
   provideSemanticTokens,
   useSiteTokens,
-  handleFilesChanged,
+  handleWatchedFilesChanged,
+  handleFileSaved,
+  handleFileChanged,
 ) where
 
 import           Control.Applicative           ((<|>))
@@ -499,6 +501,22 @@ provideCompletions req res = do
         line = maybe 0 fst pos'
         _col = maybe 0 snd pos'
 
+invalidateChangedModules :: [FilePath] -> LSP ()
+invalidateChangedModules savedPaths = do
+  logInfo $ "File(s) changed: triggering typecheck. Paths: " <> T.pack (show savedPaths)
+  spawnTypecheckWorker $ do
+    -- if any ("rzk.yaml" `isSuffixOf`) savedPaths
+    --   then do
+    --     logInfo "rzk.yaml modified. Clearing module cache"
+    --     resetCacheForAllFiles
+    --   else do
+    --     cache <- getCachedTypecheckedModules
+    --     actualModified <- dropWhileM (hasNotChanged cache) savedPaths
+    --     logInfo $ "Files requiring cache invalidation: " <> T.pack (show actualModified)
+    --     resetCacheForFiles actualModified
+    resetCacheForAllFiles
+    typecheckFromConfigFile
+
 -- | Full-document range for LSP (0-based line and character).
 --   End position is exclusive. Computed from the actual text so that every
 --   character (including trailing newlines) is included; using T.lines would
@@ -972,16 +990,17 @@ dropWhileM p (x:xs) = do
 -- formatting request from format-on-save) are answered while the project
 -- re-check is still running. Spawning the worker cancels the previous one,
 -- so a newer change restarts the re-check.
-handleFilesChanged :: Handler LSP 'Method_WorkspaceDidChangeWatchedFiles
-handleFilesChanged msg = do
+handleWatchedFilesChanged :: Handler LSP 'Method_WorkspaceDidChangeWatchedFiles
+handleWatchedFilesChanged msg = do
   let modifiedPaths = msg ^.. params . changes . traverse . uri . to uriToFilePath . _Just
-  spawnTypecheckWorker $ do
-    if any ("rzk.yaml" `isSuffixOf`) modifiedPaths
-      then do
-        logDebug "rzk.yaml modified. Clearing module cache"
-        resetCacheForAllFiles
-      else do
-        cache <- getCachedTypecheckedModules
-        actualModified <- dropWhileM (hasNotChanged cache) modifiedPaths
-        resetCacheForFiles actualModified
-    typecheckFromConfigFile
+  invalidateChangedModules modifiedPaths
+
+handleFileSaved :: Handler LSP 'Method_TextDocumentDidSave
+handleFileSaved msg = do
+  let savedPath = msg ^.. params . textDocument . uri . to uriToFilePath . _Just
+  invalidateChangedModules savedPath
+
+handleFileChanged :: Handler LSP 'Method_TextDocumentDidChange
+handleFileChanged msg = do
+  let modifiedPath = msg ^.. params . textDocument . uri . to uriToFilePath . _Just
+  invalidateChangedModules modifiedPath

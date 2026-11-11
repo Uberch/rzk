@@ -68,12 +68,58 @@
         rzk-ghcjs = ghcjs.packages.${rzk};
         rzk-js = ghcjs.packages.${rzk-js};
       } // scripts;
+			
+		nvimConfig = ''
+			autocmd BufRead,BufNewFile *.rzk set filetype=rzk
+			autocmd FileType rzk lua local root = require('lspconfig.util').root_pattern('rzk.yaml', '.git')(vim.api.nvim_buf_get_name(0)) or vim.fn.getcwd() vim.lsp.start({ name = 'rzk_lsp', cmd = { 'rzk', 'lsp' }, root_dir = root })
+			autocmd VimEnter * lua vim.lsp.set_log_level('trace')
+
+			let mapleader = " "
+			inoremap jk <Esc>
+			nnoremap <leader>e <cmd>lua vim.diagnostic.open_float()<CR>
+			nnoremap <leader>f <cmd>lua vim.lsp.buf.format({ async = true })<CR>
+			nnoremap <leader>rn <cmd>lua vim.lsp.buf.rename()<CR>
+			nnoremap gd <cmd>lua vim.lsp.buf.definition()<CR>
+			nnoremap gr <cmd>lua vim.lsp.buf.references()<CR>
+			nnoremap gi <cmd>lua vim.lsp.buf.implementation()<CR>
+			nnoremap K <cmd>lua vim.lsp.buf.hover()<CR>
+			inoremap <C-k> <cmd>lua vim.lsp.buf.signature_help()<CR>
+
+			set number
+			set relativenumber
+		'';
+
+		customNeovim = pkgs-recent.neovim.override {
+			configure = {
+				customRC = nvimConfig;
+				packages.myPlugins = with pkgs-recent.vimPlugins; {
+					start = [ nvim-lspconfig ];
+				};
+			};
+		};
 
       devShells = {
         default = default.devShells.default;
         ghcjs = ghcjs.devShells.default;
         release = pkgs.mkShell {
           buildInputs = [ scripts.release-rzk-playground ];
+        };
+        
+        # Новый шелл для тестирования LSP
+        lsp-test = pkgs-recent.mkShell {
+          # Наследуем все инструменты (cabal, ghc и т.д.) из стандартного девшелла проекта
+          inputsFrom = [ default.devShells.default ];
+          
+          buildInputs = [ customNeovim ];
+
+          shellHook = ''
+				GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+				# Cabal build
+				export PATH="$GIT_ROOT/dist-newstyle/build/${system}/ghc-9.8.4/rzk-0.11.3/x/rzk/build/rzk:$PATH"
+				# Nix build (reserve path)
+				export PATH="$GIT_ROOT/result/bin:$PATH"
+				echo "Testing LSP server"
+          '';
         };
       };
     in

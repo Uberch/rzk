@@ -29,13 +29,10 @@ handlers =
     -- TODO: add logging
     -- Empty handlers to silence the errors
     , notificationHandler SMethod_TextDocumentDidOpen $ \_msg -> pure ()
-    , notificationHandler SMethod_TextDocumentDidChange $ \_msg -> pure ()
+    , notificationHandler SMethod_TextDocumentDidChange handleFileChanged
     , notificationHandler SMethod_TextDocumentDidClose $ \_msg -> pure ()
-    , notificationHandler SMethod_WorkspaceDidChangeWatchedFiles handleFilesChanged
-    , notificationHandler SMethod_TextDocumentDidSave $ \_msg -> do
-        -- TODO: check if the file is included in the config's `include` list.
-        --       If not (and not in `exclude`) either, issue a warning.
-        return () -- FIXME: typecheck standalone files (if they are not a part of the project)
+    , notificationHandler SMethod_WorkspaceDidChangeWatchedFiles handleWatchedFilesChanged
+    , notificationHandler SMethod_TextDocumentDidSave handleFileSaved
     -- An empty hadler is needed to silence the error since it is already handled by the LSP package
     , notificationHandler SMethod_WorkspaceDidChangeConfiguration $ const $ pure ()
     -- Progress cancellation is handled by the lsp library's bookkeeping (it
@@ -45,8 +42,8 @@ handlers =
     , requestHandler SMethod_TextDocumentHover provideHover
     , requestHandler SMethod_TextDocumentDocumentSymbol provideSymbols
     , requestHandler SMethod_WorkspaceSymbol provideWorkspaceSymbols
-    , requestHandler SMethod_TextDocumentDefinition findDefinition 
-    , requestHandler SMethod_TextDocumentReferences findReferences 
+    , requestHandler SMethod_TextDocumentDefinition findDefinition
+    , requestHandler SMethod_TextDocumentReferences findReferences
     , requestHandler SMethod_TextDocumentCompletion provideCompletions
     , requestHandler SMethod_TextDocumentSemanticTokensFull provideSemanticTokens
     , requestHandler SMethod_TextDocumentFormatting formatDocument
