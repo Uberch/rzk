@@ -103,6 +103,14 @@ parseFiles (x:xs) = do
   rest <- parseFiles xs
   return $ (x, errOrMod) : rest
 
+parseFilesWithVFS :: [FilePath] -> LSP [(FilePath, Either T.Text Module)]
+parseFilesWithVFS [] = pure []
+parseFilesWithVFS (x:xs) = do
+  source <- sourceOfFile x
+  errOrMod <- liftIO $ parseModuleSafe source
+  rest <- parseFilesWithVFS xs
+  return $ (x, errOrMod) : rest
+
 -- | Given the list of possible modules returned by `parseFiles`, this segregates the errors
 --   from the successfully parsed modules and returns them in separate lists so the errors
 --   can be reported and the modules can be typechecked.
@@ -220,7 +228,7 @@ typecheckFromConfigFile = do
           logDebug ("Found " <> tshow (length cachedPaths) <> " files in the cache")
           logDebug (tshow (length modifiedFiles) <> " files have been modified")
 
-          (parseErrors, parsedModules) <- liftIO $ collectErrors <$> parseFiles modifiedFiles
+          (parseErrors, parsedModules) <- collectErrors <$> parseFilesWithVFS modifiedFiles
 
           -- Report parse errors to the client
           forM_ parseErrors $ \(path, err) -> do
@@ -502,8 +510,9 @@ provideCompletions req res = do
         _col = maybe 0 snd pos'
 
 invalidateChangedModules :: [FilePath] -> LSP ()
-invalidateChangedModules savedPaths = do
-  logInfo $ "File(s) changed: triggering typecheck. Paths: " <> T.pack (show savedPaths)
+invalidateChangedModules changedPaths = do
+  logInfo $ "File(s) changed: triggering typecheck. Paths: " <> T.pack (show changedPaths)
+  resetCacheForAllFiles
   spawnTypecheckWorker $ do
     -- if any ("rzk.yaml" `isSuffixOf`) savedPaths
     --   then do
@@ -514,7 +523,6 @@ invalidateChangedModules savedPaths = do
     --     actualModified <- dropWhileM (hasNotChanged cache) savedPaths
     --     logInfo $ "Files requiring cache invalidation: " <> T.pack (show actualModified)
     --     resetCacheForFiles actualModified
-    resetCacheForAllFiles
     typecheckFromConfigFile
 
 -- | Full-document range for LSP (0-based line and character).
